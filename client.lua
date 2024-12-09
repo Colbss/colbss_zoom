@@ -1,100 +1,102 @@
--- Variables for zoom settings
-local zoomFov = 20.0
-local defaultFOV = GetGameplayCamFov() -- Default FOV from gameplay camera
-local customCam = nil -- Custom camera variable
 
+local zoomFov = 20.0
+local defaultFOV = GetGameplayCamFov() 
+local zoomCam = nil
+local zoomActive = false
 local blockZoom = false
 
-local function DebugCoords(coords)
-
-    local model = 'prop_alien_egg_01'
-    lib.requestModel(model)
-    CreateObject(model, coords.x, coords.y, coords.z, false, false, false)
-
-end
-
--- Function to create a custom camera at the player's current position
-local function CreateCustomCamera()
-    -- Get the player's current position and heading
-    local camCoords = GetGameplayCamCoord() -- Start from where the current camera is
-    local camRot = GetGameplayCamRot(2) -- Start with the current camera rotation
-
-    -- Create the zoom camera at the player's gameplay camera position and rotation
-
-    customCam = CreateCamWithParams(
+local function CreateZoomCamera()
+    local gpcCoords = GetGameplayCamCoord() 
+    local gpcRot = GetGameplayCamRot(2)
+    zoomCam = CreateCamWithParams(
         "DEFAULT_SCRIPTED_CAMERA",
-        camCoords.x, camCoords.y, camCoords.z,
-        camRot.x, camRot.y, camRot.z,
+        gpcCoords.x, gpcCoords.y, gpcCoords.z,
+        gpcRot.x, gpcRot.y, gpcRot.z,
         zoomFov,
-        false, 
-        0      
+        true, 
+        2      
     )
-
-    -- Activate the custom camera
-    SetCamActive(customCam, true)
     RenderScriptCams(true, true, 150, true, true)
-
 end
 
--- Function to destroy the custom camera and revert to gameplay camera
-local function DestroyCustomCamera()
-    if customCam then
-        -- Deactivate the custom camera
-        SetCamActive(customCam, false)
-        RenderScriptCams(false, true, 150, true, true)
-
-        -- Destroy the custom camera
-        DestroyCam(customCam, false)
-        customCam = nil
+local function EnableZoom()
+    if zoomCam then
+        SetCamFov(zoomCam, zoomFov)
+        SetCamActive(zoomCam, true)
+        RenderScriptCams(true, true, 150, true, true)
+    else
+        CreateZoomCamera()
     end
 end
+
+local function DisableZoom()
+    if zoomCam then
+        SetCamActive(zoomCam, false)
+        RenderScriptCams(false, true, 150, true, true)
+    end
+end
+
+local zoomInKeybind = lib.addKeybind({
+    name = 'zoom_in',
+    description = 'Zoom In',
+    defaultKey = 'IOM_WHEEL_UP',
+    defaultMapper = 'MOUSE_WHEEL',
+    onPressed = function(self)
+        if not IsPlayerFreeAiming(cache.playerId) and not blockZoom then
+            EnableZoom()
+        end
+    end,
+})
+
+local zoomOutKeybind = lib.addKeybind({
+    name = 'zoom_out',
+    description = 'Zoom Out',
+    defaultKey = 'IOM_WHEEL_DOWN',
+    defaultMapper = 'MOUSE_WHEEL',
+    onPressed = function(self)
+        if not IsPlayerFreeAiming(cache.playerId) and not blockZoom then
+            DisableZoom()
+        end
+    end,
+})
 
 -- Main thread for handling zoom
 CreateThread(function()
+    local wait = 100
     while true do
-        -- Check if the player is aiming a weapon
-        if not IsPlayerFreeAiming(PlayerId()) then
-            -- Detect scroll wheel up (zoom in)
-            if not blockZoom and IsControlJustPressed(0, 241) then -- INPUT_CELLPHONE_UP (scroll wheel up)
-                if not customCam then
-                    CreateCustomCamera()
-                end
-            end
-
-            -- Detect scroll wheel down (zoom out)
-            if not blockZoom and IsControlJustPressed(0, 242) then -- INPUT_CELLPHONE_DOWN (scroll wheel down)
-
-                -- Create the custom camera if not already active
-                if customCam then
-                    DestroyCustomCamera()
-                end
-
-            end
-
-            -- Dynamically update the custom camera position to follow the player
-            if customCam then
-                local gpcCoords = GetGameplayCamCoord()
-                local camRot = GetGameplayCamRot(2)
-
-                -- Set the camera position slightly above the player's current position
-                SetCamCoord(customCam, gpcCoords.x, gpcCoords.y, gpcCoords.z)
-                SetCamRot(customCam, camRot.x, camRot.y, camRot.z, 2)
-            end
-
+        if zoomCam then
+            local gpcCoords = GetGameplayCamCoord()
+            local gpcRot = GetGameplayCamRot(2)
+            SetCamCoord(zoomCam, gpcCoords.x, gpcCoords.y, gpcCoords.z)
+            SetCamRot(zoomCam, gpcRot.x, gpcRot.y, gpcRot.z, 2)
+            wait = 0
         else
-            -- Reset the FOV and destroy the custom camera when aiming
-            if customCam then
-                DestroyCustomCamera()
-            end
+            wait = 100
         end
-
-        Wait(0) -- Wait for the next frame
+        Wait(wait)
     end
 end)
 
+--
+--  You will need to disable the zoom functionality in certain cases. i.e. no clip
+--
 RegisterNetEvent('zoom:updateBlock', function(blockUpdate)
 	blockZoom = blockUpdate
-    if blockUpdate and customCam then
-        DestroyCustomCamera()
+    if blockUpdate and zoomCam then
+        DisableZoom()
     end
 end)
+
+
+--[[
+
+    Note there is only 1 level of zoom, if you want to have
+    incremental zoom you may wish to apply this to the camera:
+
+    InterpolateCamWithParams(activeCam, 
+                        camPos.x, camPos.y, camPos.z, 
+                        camRot.x, camRot.y, camRot.z, 
+                        newFov, timeToZoom,
+                        1, 1, 2, 1)
+
+]]
